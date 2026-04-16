@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TraceSAM Web Labeler</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>TraceSAM</h1>
+          <p>Web OBB 标注台</p>
+        </div>
+
+        <label class="field">
+          <span>数据目录</span>
+          <div class="row">
+            <input id="dataDirInput" type="text" placeholder="/projects/TraceSAM/projects" />
+            <button id="loadProjectButton">加载</button>
+          </div>
+        </label>
+
+        <label class="field">
+          <span>标签格式</span>
+          <select id="formatSelect"></select>
+        </label>
+
+        <label class="field">
+          <span>类别列表</span>
+          <textarea id="classNamesInput" rows="4" placeholder="每行一个类别，例如&#10;car&#10;truck&#10;ship"></textarea>
+        </label>
+
+        <div class="toolbar">
+          <button id="drawModeButton">手动画框</button>
+          <button id="samModeButton">SAM 智能标注</button>
+          <button id="deleteShapeButton">删除选中</button>
+          <button id="saveButton" class="primary">保存标签</button>
+        </div>
+
+        <div class="image-list-wrap">
+          <div class="section-title">
+            <span>图片列表</span>
+            <span id="imageCount"></span>
+          </div>
+          <ul id="imageList" class="image-list"></ul>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <div>
+            <h2 id="imageTitle">未选择图片</h2>
+            <p id="statusText">先加载一个目录，然后选择图片开始标注。</p>
+          </div>
+          <div class="legend">
+            <span><i class="dot draw"></i> 手动 OBB</span>
+            <span><i class="dot sam"></i> SAM</span>
+          </div>
+        </header>
+
+        <section class="canvas-panel">
+          <div class="canvas-toolbar">
+            <span id="modeBadge">当前模式：浏览</span>
+            <span id="imageMeta">-</span>
+          </div>
+          <div id="canvasWrap" class="canvas-wrap">
+            <img id="imageLayer" alt="" />
+            <canvas id="overlayCanvas"></canvas>
+          </div>
+        </section>
+
+        <section class="table-panel">
+          <div class="section-title">
+            <span>当前标注</span>
+            <span id="labelCount">0</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Label</th>
+                <th>Confidence</th>
+                <th>Track ID</th>
+                <th>Points</th>
+              </tr>
+            </thead>
+            <tbody id="labelTableBody"></tbody>
+          </table>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+  </html>
