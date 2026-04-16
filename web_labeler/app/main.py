@@ -32,11 +32,14 @@ sam_service = SamService(SAM_MODEL)
 class AnnotationPayload(BaseModel):
     format: str = "yolo_obb"
     class_names: list[str] = Field(default_factory=list)
+    image_dir: str | None = None
+    label_dir: str | None = None
     labels: list[dict]
 
 
 class SamPromptPayload(BaseModel):
-    data_dir: str | None = None
+    image_dir: str | None = None
+    label_dir: str | None = None
     image_id: str
     x: float
     y: float
@@ -47,6 +50,10 @@ class SamPromptPayload(BaseModel):
 def get_config() -> dict:
     return {
         "base_dir": str(BASE_DIR),
+        "defaults": {
+            "image_dir": str(BASE_DIR),
+            "label_dir": str(BASE_DIR),
+        },
         "formats": [
             {
                 "key": item.key,
@@ -60,21 +67,34 @@ def get_config() -> dict:
     }
 
 
-@app.get("/api/images")
-def list_images(data_dir: str | None = Query(default=None)) -> dict:
+@app.get("/api/browse")
+def browse_directories(path: str | None = Query(default=None)) -> dict:
     try:
-        resolved_dir, items = project_store.list_images(data_dir)
+        return project_store.browse_directories(path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/images")
+def list_images(
+    image_dir: str | None = Query(default=None),
+    label_dir: str | None = Query(default=None),
+) -> dict:
+    try:
+        resolved_image_dir, resolved_label_dir, items = project_store.list_images(image_dir, label_dir)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {
-        "data_dir": str(resolved_dir),
+        "image_dir": str(resolved_image_dir),
+        "label_dir": str(resolved_label_dir) if resolved_label_dir else None,
         "images": [
             {
                 "id": item.image_id,
                 "name": item.name,
                 "width": item.width,
                 "height": item.height,
+                "relative_path": item.relative_path.as_posix(),
                 "annotation_path": str(item.annotation_path),
             }
             for item in items
@@ -83,9 +103,13 @@ def list_images(data_dir: str | None = Query(default=None)) -> dict:
 
 
 @app.get("/api/image")
-def get_image_file(image_id: str, data_dir: str | None = Query(default=None)):
+def get_image_file(
+    image_id: str,
+    image_dir: str | None = Query(default=None),
+    label_dir: str | None = Query(default=None),
+):
     try:
-        _, entry = project_store.get_image_entry(data_dir, image_id)
+        _, _, entry = project_store.get_image_entry(image_dir, label_dir, image_id)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return FileResponse(entry.image_path, media_type=project_store.guess_media_type(entry.image_path))
@@ -94,11 +118,12 @@ def get_image_file(image_id: str, data_dir: str | None = Query(default=None)):
 @app.get("/api/annotations")
 def get_annotations(
     image_id: str,
-    data_dir: str | None = Query(default=None),
+    image_dir: str | None = Query(default=None),
+    label_dir: str | None = Query(default=None),
     format: str = Query(default="yolo_obb"),
 ) -> dict:
     try:
-        _, entry = project_store.get_image_entry(data_dir, image_id)
+        _, _, entry = project_store.get_image_entry(image_dir, label_dir, image_id)
         annotation_format = get_annotation_format(format)
         labels = annotation_format.load(entry.annotation_path, entry.width, entry.height)
     except ValueError as exc:
@@ -121,7 +146,7 @@ def get_annotations(
 @app.put("/api/annotations")
 def save_annotations(payload: AnnotationPayload, image_id: str, data_dir: str | None = Query(default=None)) -> dict:
     try:
-        _, entry = project_store.get_image_entry(data_dir, image_id)
+        _, _, entry = project_store.get_image_entry(payload.image_dir, payload.label_dir, image_id)
         annotation_format = get_annotation_format(payload.format)
         labels = [
             LabelRecord(
@@ -148,7 +173,7 @@ def save_annotations(payload: AnnotationPayload, image_id: str, data_dir: str | 
 @app.post("/api/sam")
 def sam_prompt(payload: SamPromptPayload) -> dict:
     try:
-        _, entry = project_store.get_image_entry(payload.data_dir, payload.image_id)
+        _, _, entry = project_store.get_image_entry(payload.image_dir, payload.label_dir, payload.image_id)
         result = sam_service.segment_to_obb(entry.image_path, payload.x, payload.y)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
