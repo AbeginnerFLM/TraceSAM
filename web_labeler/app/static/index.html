@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TraceSAM Studio</title>
-    <link rel="stylesheet" href="/styles.css?v=studio-20260416-2" />
+    <link rel="stylesheet" href="/styles.css?v=studio-20260416-3" />
   </head>
   <body>
     <div class="studio-shell">
@@ -21,7 +21,7 @@
             <div class="brand-icon">T</div>
             <div class="brand-text">
               <strong>TraceSAM Studio</strong>
-              <span>Ultralytics-style OBB workspace</span>
+              <span>Local-first OBB workspace</span>
             </div>
           </div>
 
@@ -49,35 +49,36 @@
             <div class="dock-head">
               <div>
                 <h2>Workspace</h2>
-                <p>分开选择图片目录与标签目录</p>
+                <p>从你的电脑里选择图片目录和标签目录</p>
               </div>
-              <button id="refreshButton" class="ghost-btn">刷新</button>
+              <button id="refreshButton" class="ghost-btn">重扫</button>
             </div>
 
-            <label class="field-block">
-              <span>图片目录</span>
-              <div class="inline-input">
-                <input id="imageDirInput" type="text" placeholder="/home/xf/TraceSAM/images" />
-                <button id="browseImageDirButton" class="ghost-btn">浏览</button>
+            <div class="selection-stack">
+              <div class="selection-card">
+                <span class="selection-label">图片目录</span>
+                <strong id="imageDirDisplay">未选择</strong>
+                <button id="pickImageDirButton" class="primary-btn wide">选择本地图片目录</button>
               </div>
-            </label>
 
-            <label class="field-block">
-              <span>标签目录</span>
-              <div class="inline-input">
-                <input id="labelDirInput" type="text" placeholder="/home/xf/TraceSAM/labels" />
-                <button id="browseLabelDirButton" class="ghost-btn">浏览</button>
+              <div class="selection-card">
+                <span class="selection-label">标签目录</span>
+                <strong id="labelDirDisplay">未选择</strong>
+                <button id="pickLabelDirButton" class="ghost-btn wide">选择本地标签目录</button>
               </div>
-            </label>
+            </div>
 
-            <button id="loadWorkspaceButton" class="primary-btn wide">加载工作区</button>
+            <div class="tip-box">
+              <strong>提示</strong>
+              <p>目录权限由浏览器管理，保存时会直接写回你选定的本地标签目录。</p>
+            </div>
           </section>
 
           <section class="dock-card classes-card">
             <div class="dock-head">
               <div>
                 <h2>Classes</h2>
-                <p>类别列表会影响保存的 class id</p>
+                <p>类别列表决定保存时的 class id 顺序</p>
               </div>
             </div>
             <label class="field-block">
@@ -108,7 +109,7 @@
             <div class="dock-head">
               <div>
                 <h2>Objects</h2>
-                <p id="statusText">Select an image to begin</p>
+                <p id="statusText">先选择本地图片目录</p>
               </div>
               <div class="status-mini">
                 <span>Status <strong id="statusBadge">Idle</strong></span>
@@ -160,21 +161,6 @@
       </main>
     </div>
 
-    <dialog id="directoryDialog" class="dir-dialog">
-      <div class="dialog-head">
-        <div>
-          <h3 id="directoryDialogTitle">选择目录</h3>
-          <p id="directoryCurrentPath">-</p>
-        </div>
-        <button id="closeDirectoryDialog" class="ghost-btn small">关闭</button>
-      </div>
-      <div class="dialog-toolbar">
-        <button id="goParentDirectoryButton" class="ghost-btn small">上一级</button>
-        <button id="chooseCurrentDirectoryButton" class="primary-btn small">使用当前目录</button>
-      </div>
-      <div id="directoryList" class="directory-list"></div>
-    </dialog>
-
-    <script src="/app.js?v=studio-20260416-2" type="module"></script>
+    <script src="/app.js?v=studio-20260416-3" type="module"></script>
   </body>
 </html>

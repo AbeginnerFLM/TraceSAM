@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -183,6 +184,32 @@ def sam_prompt(payload: SamPromptPayload) -> dict:
         "points": result["points"],
         "confidence": result["confidence"],
     }
+
+
+@app.post("/api/sam-file")
+async def sam_from_file(
+    image: UploadFile = File(...),
+    x: float = Form(...),
+    y: float = Form(...),
+    label: str | None = Form(default=None),
+) -> dict:
+    suffix = Path(image.filename or "image.jpg").suffix or ".jpg"
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(await image.read())
+            tmp_path = Path(tmp.name)
+        result = sam_service.segment_to_obb(tmp_path, x, y)
+        return {
+            "label": label or "0",
+            "points": result["points"],
+            "confidence": result["confidence"],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
 
 
 static_dir = Path(__file__).resolve().parent / "static"

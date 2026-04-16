@@ -173,6 +173,52 @@ select:focus {
   flex: 0 0 auto;
 }
 
+.selection-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.selection-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+}
+
+.selection-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.selection-card strong {
+  min-height: 22px;
+  font-size: 0.95rem;
+}
+
+.tip-box {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px dashed rgba(74, 87, 255, 0.18);
+  background: rgba(74, 87, 255, 0.06);
+}
+
+.tip-box strong {
+  color: var(--blue);
+}
+
+.tip-box p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .classes-card,
 .images-card,
 .inspector-card {

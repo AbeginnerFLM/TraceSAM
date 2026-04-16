@@ -1,28 +1,31 @@
 const state = {
   config: null,
-  imageDir: "",
-  labelDir: "",
   format: "yolo_obb",
   classNames: [],
+  imageDirHandle: null,
+  labelDirHandle: null,
+  imageDirName: "",
+  labelDirName: "",
   images: [],
   filteredImages: [],
   activeImageIndex: -1,
+  activeImageFile: null,
+  activeImageUrl: "",
   labels: [],
   selectedLabelIndex: -1,
   mode: "select",
   pendingPoints: [],
   displayScale: 1,
   drag: null,
-  directoryPickerTarget: "image",
-  directoryCursor: "",
 };
 
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".bmp", ".webp"]);
+
 const elements = {
-  imageDirInput: document.getElementById("imageDirInput"),
-  labelDirInput: document.getElementById("labelDirInput"),
-  browseImageDirButton: document.getElementById("browseImageDirButton"),
-  browseLabelDirButton: document.getElementById("browseLabelDirButton"),
-  loadWorkspaceButton: document.getElementById("loadWorkspaceButton"),
+  pickImageDirButton: document.getElementById("pickImageDirButton"),
+  pickLabelDirButton: document.getElementById("pickLabelDirButton"),
+  imageDirDisplay: document.getElementById("imageDirDisplay"),
+  labelDirDisplay: document.getElementById("labelDirDisplay"),
   refreshButton: document.getElementById("refreshButton"),
   formatSelect: document.getElementById("formatSelect"),
   classNamesInput: document.getElementById("classNamesInput"),
@@ -50,13 +53,6 @@ const elements = {
   trackIdEditor: document.getElementById("trackIdEditor"),
   difficultEditor: document.getElementById("difficultEditor"),
   shapeList: document.getElementById("shapeList"),
-  directoryDialog: document.getElementById("directoryDialog"),
-  directoryDialogTitle: document.getElementById("directoryDialogTitle"),
-  directoryCurrentPath: document.getElementById("directoryCurrentPath"),
-  closeDirectoryDialog: document.getElementById("closeDirectoryDialog"),
-  goParentDirectoryButton: document.getElementById("goParentDirectoryButton"),
-  chooseCurrentDirectoryButton: document.getElementById("chooseCurrentDirectoryButton"),
-  directoryList: document.getElementById("directoryList"),
 };
 
 const ctx = elements.overlayCanvas.getContext("2d");
@@ -68,26 +64,20 @@ boot().catch((error) => {
 
 async function boot() {
   state.config = await api("/api/config");
-  state.imageDir = state.config.defaults.image_dir;
-  state.labelDir = state.config.defaults.label_dir;
-  elements.imageDirInput.value = state.imageDir;
-  elements.labelDirInput.value = state.labelDir;
   renderFormats();
   bindEvents();
-  await loadWorkspace();
+  if (!window.showDirectoryPicker) {
+    setStatus("当前浏览器不支持本地目录读写，请使用最新版 Chrome 或 Edge。", "warn");
+  }
 }
 
 function bindEvents() {
-  elements.loadWorkspaceButton.addEventListener("click", () => loadWorkspace());
-  elements.refreshButton.addEventListener("click", () => loadWorkspace());
-  elements.browseImageDirButton.addEventListener("click", () => openDirectoryDialog("image"));
-  elements.browseLabelDirButton.addEventListener("click", () => openDirectoryDialog("label"));
-  elements.closeDirectoryDialog.addEventListener("click", () => elements.directoryDialog.close());
-  elements.goParentDirectoryButton.addEventListener("click", () => browseDirectory(".."));
-  elements.chooseCurrentDirectoryButton.addEventListener("click", useCurrentDirectory);
-  elements.imageSearchInput.addEventListener("input", filterImages);
+  elements.pickImageDirButton.addEventListener("click", pickImageDirectory);
+  elements.pickLabelDirButton.addEventListener("click", pickLabelDirectory);
+  elements.refreshButton.addEventListener("click", rescanWorkspace);
   elements.formatSelect.addEventListener("change", onFormatChange);
   elements.classNamesInput.addEventListener("change", syncClassNames);
+  elements.imageSearchInput.addEventListener("input", filterImages);
   elements.selectModeButton.addEventListener("click", () => setMode("select"));
   elements.drawModeButton.addEventListener("click", () => setMode("draw"));
   elements.samModeButton.addEventListener("click", () => setMode("sam"));
@@ -123,42 +113,78 @@ function renderFormats() {
   elements.formatSelect.value = state.format;
 }
 
-async function loadWorkspace() {
-  state.imageDir = elements.imageDirInput.value.trim();
-  state.labelDir = elements.labelDirInput.value.trim();
-  const query = buildWorkspaceQuery();
-  const result = await api(`/api/images?${query}`);
-  state.imageDir = result.image_dir;
-  state.labelDir = result.label_dir || state.imageDir;
-  elements.imageDirInput.value = state.imageDir;
-  elements.labelDirInput.value = state.labelDir;
-  state.images = result.images;
-  filterImages();
-  setStatus(`Loaded ${state.images.length} images from workspace.`, "ready");
-
-  if (!state.images.length) {
-    state.activeImageIndex = -1;
-    state.labels = [];
-    renderImageList();
-    renderShapeList();
-    redraw();
-    return;
+async function pickImageDirectory() {
+  try {
+    ensureDirectoryApi();
+    state.imageDirHandle = await window.showDirectoryPicker({ mode: "read" });
+    state.imageDirName = state.imageDirHandle.name;
+    elements.imageDirDisplay.textContent = state.imageDirName;
+    await rescanWorkspace();
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      setStatus(error.message, "error");
+    }
   }
-
-  const nextIndex = Math.min(Math.max(state.activeImageIndex, 0), state.filteredImages.length - 1);
-  await openImageById(state.filteredImages[nextIndex]?.id || state.images[0].id);
 }
 
-function buildWorkspaceQuery() {
-  const params = new URLSearchParams();
-  params.set("image_dir", state.imageDir);
-  params.set("label_dir", state.labelDir);
-  return params.toString();
+async function pickLabelDirectory() {
+  try {
+    ensureDirectoryApi();
+    state.labelDirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    state.labelDirName = state.labelDirHandle.name;
+    elements.labelDirDisplay.textContent = state.labelDirName;
+    setStatus(`标签目录已切换到 ${state.labelDirName}`, "ready");
+    if (state.activeImageIndex >= 0) {
+      await loadAnnotationsForActiveImage();
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      setStatus(error.message, "error");
+    }
+  }
+}
+
+async function rescanWorkspace() {
+  if (!state.imageDirHandle) {
+    setStatus("请先选择本地图片目录。", "warn");
+    return;
+  }
+  state.images = await collectImageEntries(state.imageDirHandle);
+  filterImages();
+  setStatus(`已扫描 ${state.images.length} 张本地图片。`, "ready");
+  if (state.images.length) {
+    await openImageByIndex(0);
+  } else {
+    resetCanvasState();
+  }
+}
+
+async function collectImageEntries(dirHandle, parentParts = []) {
+  const results = [];
+  for await (const entry of dirHandle.values()) {
+    if (entry.kind === "directory") {
+      results.push(...await collectImageEntries(entry, [...parentParts, entry.name]));
+      continue;
+    }
+    const extension = getExtension(entry.name);
+    if (!IMAGE_EXTENSIONS.has(extension)) {
+      continue;
+    }
+    const relativePath = [...parentParts, entry.name].join("/");
+    results.push({
+      id: relativePath,
+      name: entry.name,
+      relativePath,
+      handle: entry,
+    });
+  }
+  results.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  return results;
 }
 
 function filterImages() {
   const keyword = elements.imageSearchInput.value.trim().toLowerCase();
-  state.filteredImages = state.images.filter((item) => item.name.toLowerCase().includes(keyword));
+  state.filteredImages = state.images.filter((item) => item.relativePath.toLowerCase().includes(keyword));
   elements.imageCount.textContent = String(state.filteredImages.length);
   renderImageList();
 }
@@ -171,7 +197,7 @@ function renderImageList() {
     row.className = `image-row ${getActiveImage()?.id === item.id ? "active" : ""}`;
     row.innerHTML = `
       <div class="row-title">${item.name}</div>
-      <div class="row-subtitle">${item.width} x ${item.height}</div>
+      <div class="row-subtitle">${item.relativePath}</div>
     `;
     row.addEventListener("click", () => openImageById(item.id));
     elements.imageList.append(row);
@@ -180,89 +206,184 @@ function renderImageList() {
 
 async function openImageById(imageId) {
   const index = state.images.findIndex((item) => item.id === imageId);
-  if (index < 0) {
+  if (index >= 0) {
+    await openImageByIndex(index);
+  }
+}
+
+async function openImageByIndex(index) {
+  const image = state.images[index];
+  if (!image) {
     return;
   }
 
   state.activeImageIndex = index;
-  state.selectedLabelIndex = -1;
   state.pendingPoints = [];
+  state.selectedLabelIndex = -1;
   renderImageList();
 
-  const image = getActiveImage();
-  elements.imageTitle.textContent = image.name;
-  elements.imageMeta.textContent = `${image.width} x ${image.height}`;
-  elements.imageLayer.src = `/api/image?image_dir=${encodeURIComponent(state.imageDir)}&label_dir=${encodeURIComponent(state.labelDir)}&image_id=${encodeURIComponent(image.id)}`;
+  if (state.activeImageUrl) {
+    URL.revokeObjectURL(state.activeImageUrl);
+  }
+  const file = await image.handle.getFile();
+  state.activeImageFile = file;
+  state.activeImageUrl = URL.createObjectURL(file);
+  elements.imageLayer.src = state.activeImageUrl;
 
   await new Promise((resolve) => {
     elements.imageLayer.onload = resolve;
   });
 
+  image.width = elements.imageLayer.naturalWidth;
+  image.height = elements.imageLayer.naturalHeight;
+  elements.imageTitle.textContent = image.relativePath;
+  elements.imageMeta.textContent = `${image.width} x ${image.height}`;
   resizeCanvas();
-  await loadAnnotations(image.id);
+  await loadAnnotationsForActiveImage();
 }
 
-async function loadAnnotations(imageId) {
-  const result = await api(`/api/annotations?image_dir=${encodeURIComponent(state.imageDir)}&label_dir=${encodeURIComponent(state.labelDir)}&image_id=${encodeURIComponent(imageId)}&format=${encodeURIComponent(state.format)}`);
-  state.labels = (result.labels || []).map(normalizeShape);
+async function loadAnnotationsForActiveImage() {
+  const image = getActiveImage();
+  if (!image) {
+    return;
+  }
+  try {
+    const content = await readLabelFile(image.relativePath);
+    state.labels = parseYoloObb(content, image.width, image.height);
+  } catch (error) {
+    state.labels = [];
+  }
   state.selectedLabelIndex = state.labels.length ? 0 : -1;
   renderShapeList();
   syncInspector();
   redraw();
-  setStatus(`Loaded ${state.labels.length} annotations from ${getActiveImage().name}.`, "ready");
+  setStatus(`已加载 ${state.labels.length} 个标注。`, "ready");
 }
 
-function normalizeShape(item) {
-  return {
-    label: item.label ?? "0",
-    points: (item.points || []).slice(0, 4).map(([x, y]) => [Number(x), Number(y)]),
-    confidence: item.confidence ?? null,
-    track_id: item.track_id ?? null,
-    difficult: Boolean(item.difficult),
-  };
+async function readLabelFile(relativePath) {
+  if (!state.labelDirHandle) {
+    return "";
+  }
+  const handle = await getLabelFileHandle(relativePath, false);
+  if (!handle) {
+    return "";
+  }
+  const file = await handle.getFile();
+  return file.text();
+}
+
+function parseYoloObb(content, width, height) {
+  const labels = [];
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    const parts = line.split(/\s+/);
+    if (parts.length < 9) {
+      continue;
+    }
+    const points = [];
+    const coords = parts.slice(1, 9).map(Number);
+    for (let i = 0; i < coords.length; i += 2) {
+      points.push([coords[i] * width, coords[i + 1] * height]);
+    }
+    labels.push({
+      label: parts[0],
+      points,
+      confidence: parts[9] ? Number(parts[9]) : null,
+      track_id: parts[10] ? Number(parts[10]) : null,
+      difficult: false,
+    });
+  }
+  return labels;
 }
 
 async function saveAnnotations() {
-  if (!getActiveImage()) {
+  const image = getActiveImage();
+  if (!image) {
+    setStatus("没有可保存的图片。", "warn");
+    return;
+  }
+  if (!state.labelDirHandle) {
+    setStatus("请先选择本地标签目录。", "warn");
     return;
   }
   syncClassNames();
-  await api(`/api/annotations?image_id=${encodeURIComponent(getActiveImage().id)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      format: state.format,
-      class_names: state.classNames,
-      image_dir: state.imageDir,
-      label_dir: state.labelDir,
-      labels: state.labels,
-    }),
-  });
-  setStatus(`Saved ${state.labels.length} annotations to ${state.labelDir}.`, "saved");
+  const content = serializeYoloObb(state.labels, image.width, image.height);
+  const handle = await getLabelFileHandle(image.relativePath, true);
+  const writable = await handle.createWritable();
+  await writable.write(content);
+  await writable.close();
+  setStatus(`已保存到本地标签目录：${state.labelDirName}`, "saved");
 }
 
-function syncClassNames() {
-  state.classNames = elements.classNamesInput.value.split("\n").map((value) => value.trim()).filter(Boolean);
+function serializeYoloObb(labels, width, height) {
+  return labels
+    .map((item) => {
+      const classIndex = resolveClassIndex(item.label);
+      const coords = item.points.flatMap(([x, y]) => [
+        (x / width).toFixed(6),
+        (y / height).toFixed(6),
+      ]);
+      const row = [String(classIndex), ...coords];
+      if (item.confidence != null && item.confidence !== "") {
+        row.push(Number(item.confidence).toFixed(6));
+      }
+      if (item.track_id != null && item.track_id !== "") {
+        row.push(String(Math.trunc(Number(item.track_id))));
+      }
+      return row.join(" ");
+    })
+    .join("\n");
+}
+
+function resolveClassIndex(label) {
+  const asNumber = Number(label);
+  if (!Number.isNaN(asNumber)) {
+    return asNumber;
+  }
+  const index = state.classNames.indexOf(label);
+  return index >= 0 ? index : 0;
+}
+
+async function getLabelFileHandle(relativePath, create) {
+  if (!state.labelDirHandle) {
+    return null;
+  }
+  const parts = relativePath.split("/");
+  const fileName = parts.pop().replace(/\.[^.]+$/, ".txt");
+  let currentDir = state.labelDirHandle;
+  for (const part of parts) {
+    currentDir = await currentDir.getDirectoryHandle(part, { create });
+  }
+  try {
+    return await currentDir.getFileHandle(fileName, { create });
+  } catch {
+    return null;
+  }
 }
 
 function onFormatChange() {
   state.format = elements.formatSelect.value;
   const option = state.config.formats.find((item) => item.key === state.format);
   if (option && !option.implemented) {
-    setStatus(`${option.display_name} is reserved for later. Current working format is YOLO OBB.`, "warn");
-  } else if (getActiveImage()) {
-    loadAnnotations(getActiveImage().id);
+    setStatus(`${option.display_name} 还未实现，当前请使用 YOLO OBB。`, "warn");
   }
 }
 
 function setMode(mode) {
   state.mode = mode;
   state.pendingPoints = [];
-  elements.modeBadge.textContent = mode === "draw" ? "4-point OBB" : mode === "sam" ? "SAM Assist" : "Select";
+  elements.modeBadge.textContent = mode === "draw" ? "Draw" : mode === "sam" ? "Smart" : "Select";
   elements.selectModeButton.classList.toggle("active", mode === "select");
   elements.drawModeButton.classList.toggle("active", mode === "draw");
   elements.samModeButton.classList.toggle("active", mode === "sam");
   redraw();
+}
+
+function syncClassNames() {
+  state.classNames = elements.classNamesInput.value.split("\n").map((item) => item.trim()).filter(Boolean);
 }
 
 function resizeCanvas() {
@@ -271,15 +392,11 @@ function resizeCanvas() {
   if (!image) {
     return;
   }
-
-  const maxWidth = Math.max(viewportRect.width - 52, 240);
-  const maxHeight = Math.max(viewportRect.height - 52, 240);
-  const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
-  state.displayScale = scale;
-
-  const width = Math.round(image.width * scale);
-  const height = Math.round(image.height * scale);
-
+  const maxWidth = Math.max(viewportRect.width - 44, 240);
+  const maxHeight = Math.max(viewportRect.height - 44, 240);
+  state.displayScale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+  const width = Math.round(image.width * state.displayScale);
+  const height = Math.round(image.height * state.displayScale);
   elements.imageLayer.width = width;
   elements.imageLayer.height = height;
   elements.overlayCanvas.width = width;
@@ -304,24 +421,24 @@ function drawShape(shape, active) {
     ctx.lineTo(points[i][0], points[i][1]);
   }
   ctx.closePath();
-  ctx.fillStyle = active ? "rgba(63, 196, 255, 0.18)" : "rgba(50, 118, 255, 0.12)";
-  ctx.strokeStyle = active ? "#3fc4ff" : "#5f8fff";
-  ctx.lineWidth = active ? 2.5 : 1.6;
+  ctx.fillStyle = active ? "rgba(50, 200, 255, 0.18)" : "rgba(74, 87, 255, 0.12)";
+  ctx.strokeStyle = active ? "#32c8ff" : "#4a57ff";
+  ctx.lineWidth = active ? 2.4 : 1.6;
   ctx.fill();
   ctx.stroke();
 
   points.forEach(([x, y], index) => {
     ctx.beginPath();
     ctx.arc(x, y, active ? HANDLE_RADIUS : HANDLE_RADIUS - 1.5, 0, Math.PI * 2);
-    ctx.fillStyle = index === 0 ? "#ff7b31" : "#d8e6ff";
+    ctx.fillStyle = index === 0 ? "#ff9e44" : "#ffffff";
     ctx.fill();
-    ctx.strokeStyle = "#08111f";
+    ctx.strokeStyle = "#182130";
     ctx.lineWidth = 1.2;
     ctx.stroke();
   });
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "600 12px ui-sans-serif";
+  ctx.font = "600 12px Inter, sans-serif";
   ctx.fillText(shape.label || "0", points[0][0] + 8, points[0][1] - 10);
   ctx.restore();
 }
@@ -332,7 +449,7 @@ function drawPendingShape() {
   }
   const points = state.pendingPoints.map(toCanvasPoint);
   ctx.save();
-  ctx.strokeStyle = "#ffb15c";
+  ctx.strokeStyle = "#ff9e44";
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(points[0][0], points[0][1]);
@@ -343,14 +460,15 @@ function drawPendingShape() {
   points.forEach(([x, y]) => {
     ctx.beginPath();
     ctx.arc(x, y, HANDLE_RADIUS, 0, Math.PI * 2);
-    ctx.fillStyle = "#ff7b31";
+    ctx.fillStyle = "#ff9e44";
     ctx.fill();
   });
   ctx.restore();
 }
 
 async function handleCanvasClick(event) {
-  if (state.drag || !getActiveImage()) {
+  const image = getActiveImage();
+  if (!image || state.drag) {
     return;
   }
   const point = getImageCoordinates(event);
@@ -375,25 +493,32 @@ async function handleCanvasClick(event) {
   }
 
   if (state.mode === "sam") {
-    setStatus(`SAM processing point (${Math.round(point[0])}, ${Math.round(point[1])}) ...`, "busy");
-    const result = await api("/api/sam", {
+    if (!state.activeImageFile) {
+      setStatus("当前没有可用于 SAM 的图片。", "warn");
+      return;
+    }
+    setStatus("SAM 正在处理当前本地图片...", "busy");
+    const formData = new FormData();
+    formData.append("image", state.activeImageFile, state.activeImageFile.name);
+    formData.append("x", String(point[0]));
+    formData.append("y", String(point[1]));
+    formData.append("label", nextLabel());
+    const result = await api("/api/sam-file", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        image_dir: state.imageDir,
-        label_dir: state.labelDir,
-        image_id: getActiveImage().id,
-        x: point[0],
-        y: point[1],
-        label: nextLabel(),
-      }),
+      body: formData,
     });
-    state.labels.push(normalizeShape(result));
+    state.labels.push({
+      label: result.label,
+      points: result.points,
+      confidence: result.confidence,
+      track_id: null,
+      difficult: false,
+    });
     state.selectedLabelIndex = state.labels.length - 1;
     renderShapeList();
     syncInspector();
     redraw();
-    setStatus("SAM generated an OBB. You can refine vertices by dragging them.", "ready");
+    setStatus("SAM 已基于本地图片生成 OBB。", "ready");
     return;
   }
 
@@ -412,7 +537,6 @@ function handlePointerDown(event) {
     elements.overlayCanvas.setPointerCapture(event.pointerId);
     return;
   }
-
   if (pointInPolygon(point, shape.points)) {
     state.drag = { kind: "shape", lastPoint: point };
     elements.overlayCanvas.setPointerCapture(event.pointerId);
@@ -420,10 +544,10 @@ function handlePointerDown(event) {
 }
 
 function handlePointerMove(event) {
-  const point = getImageCoordinates(event);
   if (!state.drag || state.selectedLabelIndex < 0) {
     return;
   }
+  const point = getImageCoordinates(event);
   const shape = state.labels[state.selectedLabelIndex];
   const dx = point[0] - state.drag.lastPoint[0];
   const dy = point[1] - state.drag.lastPoint[1];
@@ -440,29 +564,15 @@ function handlePointerMove(event) {
 }
 
 function handlePointerUp(event) {
-  if (state.drag) {
-    state.drag = null;
-    try {
-      elements.overlayCanvas.releasePointerCapture(event.pointerId);
-    } catch {
-      // ignore
-    }
+  if (!state.drag) {
+    return;
   }
-}
-
-function selectByPoint(point) {
-  let selected = -1;
-  for (let index = state.labels.length - 1; index >= 0; index -= 1) {
-    const shape = state.labels[index];
-    if (pointInPolygon(point, shape.points)) {
-      selected = index;
-      break;
-    }
+  state.drag = null;
+  try {
+    elements.overlayCanvas.releasePointerCapture(event.pointerId);
+  } catch {
+    // ignore
   }
-  state.selectedLabelIndex = selected;
-  renderShapeList();
-  syncInspector();
-  redraw();
 }
 
 function renderShapeList() {
@@ -470,9 +580,9 @@ function renderShapeList() {
   state.labels.forEach((shape, index) => {
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `shape-row ${state.selectedLabelIndex === index ? "active" : ""}`;
+    row.className = `shape-row ${index === state.selectedLabelIndex ? "active" : ""}`;
     row.innerHTML = `
-      <div class="row-title">${shape.label || "0"} <span class="row-subtitle">#${index + 1}</span></div>
+      <div class="row-title">${shape.label || "0"}</div>
       <div class="row-subtitle">${shape.points.map(([x, y]) => `${x.toFixed(0)},${y.toFixed(0)}`).join(" · ")}</div>
     `;
     row.addEventListener("click", () => {
@@ -519,75 +629,38 @@ function deleteSelectedShape() {
 }
 
 function stepImage(offset) {
-  const image = getActiveImage();
-  if (!image || !state.filteredImages.length) {
+  const active = getActiveImage();
+  if (!active || !state.filteredImages.length) {
     return;
   }
-  const currentFilteredIndex = state.filteredImages.findIndex((item) => item.id === image.id);
-  const nextIndex = currentFilteredIndex + offset;
-  if (nextIndex < 0 || nextIndex >= state.filteredImages.length) {
+  const filteredIndex = state.filteredImages.findIndex((item) => item.id === active.id);
+  const next = filteredIndex + offset;
+  if (next < 0 || next >= state.filteredImages.length) {
     return;
   }
-  openImageById(state.filteredImages[nextIndex].id);
+  openImageById(state.filteredImages[next].id);
 }
 
-async function openDirectoryDialog(target) {
-  state.directoryPickerTarget = target;
-  const currentPath = target === "image" ? elements.imageDirInput.value.trim() : elements.labelDirInput.value.trim();
-  await browseDirectory(currentPath || state.config.base_dir);
-  elements.directoryDialogTitle.textContent = target === "image" ? "选择图片目录" : "选择标签目录";
-  elements.directoryDialog.showModal();
-}
-
-async function browseDirectory(path) {
-  const actualPath = path === ".." ? state.directoryCursor && state.directoryCursor !== "/" ? new URLSearchParams({ path: state.directoryCursor }).toString() : "" : new URLSearchParams({ path }).toString();
-  let result;
-  if (path === "..") {
-    const browse = await api(`/api/browse?path=${encodeURIComponent(state.directoryCursor)}`);
-    if (!browse.parent_path) {
-      result = browse;
-    } else {
-      result = await api(`/api/browse?path=${encodeURIComponent(browse.parent_path)}`);
+function selectByPoint(point) {
+  let selected = -1;
+  for (let index = state.labels.length - 1; index >= 0; index -= 1) {
+    if (pointInPolygon(point, state.labels[index].points)) {
+      selected = index;
+      break;
     }
-  } else {
-    result = await api(`/api/browse?${actualPath}`);
   }
-  state.directoryCursor = result.current_path;
-  elements.directoryCurrentPath.textContent = result.current_path;
-  elements.directoryList.innerHTML = "";
-  for (const child of result.children) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "directory-row";
-    row.innerHTML = `<div class="row-title">${child.name}</div><div class="row-subtitle">${child.path}</div>`;
-    row.addEventListener("click", () => browseDirectory(child.path));
-    elements.directoryList.append(row);
-  }
-}
-
-function useCurrentDirectory() {
-  if (state.directoryPickerTarget === "image") {
-    elements.imageDirInput.value = state.directoryCursor;
-  } else {
-    elements.labelDirInput.value = state.directoryCursor;
-  }
-  elements.directoryDialog.close();
-}
-
-function nextLabel() {
-  syncClassNames();
-  return state.classNames[0] || "0";
-}
-
-function getActiveImage() {
-  return state.activeImageIndex >= 0 ? state.images[state.activeImageIndex] : null;
+  state.selectedLabelIndex = selected;
+  renderShapeList();
+  syncInspector();
+  redraw();
 }
 
 function getImageCoordinates(event) {
   const rect = elements.overlayCanvas.getBoundingClientRect();
-  const x = (event.clientX - rect.left) / state.displayScale;
-  const y = (event.clientY - rect.top) / state.displayScale;
-  return clampPoint([x, y]);
+  return clampPoint([
+    (event.clientX - rect.left) / state.displayScale,
+    (event.clientY - rect.top) / state.displayScale,
+  ]);
 }
 
 function toCanvasPoint([x, y]) {
@@ -630,6 +703,38 @@ function pointInPolygon(point, polygon) {
     }
   }
   return inside;
+}
+
+function nextLabel() {
+  syncClassNames();
+  return state.classNames[0] || "0";
+}
+
+function getActiveImage() {
+  return state.activeImageIndex >= 0 ? state.images[state.activeImageIndex] : null;
+}
+
+function resetCanvasState() {
+  state.activeImageIndex = -1;
+  state.labels = [];
+  state.selectedLabelIndex = -1;
+  elements.imageTitle.textContent = "Select an image to begin";
+  elements.imageMeta.textContent = "-";
+  elements.imageLayer.removeAttribute("src");
+  renderImageList();
+  renderShapeList();
+  redraw();
+}
+
+function ensureDirectoryApi() {
+  if (!window.showDirectoryPicker) {
+    throw new Error("当前浏览器不支持本地目录访问，请使用最新版 Chrome 或 Edge。");
+  }
+}
+
+function getExtension(fileName) {
+  const index = fileName.lastIndexOf(".");
+  return index >= 0 ? fileName.slice(index).toLowerCase() : "";
 }
 
 function setStatus(text, tone = "idle") {
