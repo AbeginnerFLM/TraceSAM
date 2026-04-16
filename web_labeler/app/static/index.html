@@ -7,177 +7,144 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="platform-shell">
-      <header class="topbar">
-        <div class="brand-lockup">
-          <div class="brand-mark">T</div>
-          <div>
-            <strong>TraceSAM Platform</strong>
-            <p>OBB annotation workspace with SAM assist</p>
+    <div class="app">
+      <main class="stage">
+        <div class="canvas-surface">
+          <div id="canvasViewport" class="canvas-viewport">
+            <img id="imageLayer" alt="" />
+            <canvas id="overlayCanvas"></canvas>
           </div>
         </div>
-        <div class="topbar-meta">
-          <div class="metric-pill">
-            <span>格式</span>
-            <strong id="activeFormatLabel">YOLO OBB</strong>
+
+        <header class="floating-bar top-left">
+          <div class="brand-chip">
+            <div class="brand-dot">T</div>
+            <div class="brand-copy">
+              <strong>TraceSAM</strong>
+              <span>OBB Workspace</span>
+            </div>
           </div>
-          <div class="metric-pill">
-            <span>状态</span>
-            <strong id="statusBadge">Idle</strong>
+
+          <div class="toolbar-group compact">
+            <button id="selectModeButton" class="tool active">Select</button>
+            <button id="drawModeButton" class="tool">Draw</button>
+            <button id="samModeButton" class="tool accent">Smart</button>
           </div>
-        </div>
-      </header>
 
-      <main class="workspace-grid">
-        <aside class="sidebar card">
-          <section class="card-section">
-            <div class="section-heading">
-              <div>
-                <h2>Workspace</h2>
-                <p>分别选择图片目录与标签目录</p>
-              </div>
-            </div>
-
-            <label class="input-group">
-              <span>图片目录</span>
-              <div class="inline-field">
-                <input id="imageDirInput" type="text" placeholder="/home/xf/TraceSAM/projects/images" />
-                <button id="browseImageDirButton" class="ghost">浏览</button>
-              </div>
-            </label>
-
-            <label class="input-group">
-              <span>标签目录</span>
-              <div class="inline-field">
-                <input id="labelDirInput" type="text" placeholder="/home/xf/TraceSAM/projects/labels" />
-                <button id="browseLabelDirButton" class="ghost">浏览</button>
-              </div>
-            </label>
-
-            <div class="inline-actions">
-              <button id="loadWorkspaceButton" class="primary">加载工作区</button>
-              <button id="refreshButton" class="ghost">刷新</button>
-            </div>
-          </section>
-
-          <section class="card-section compact">
-            <div class="section-heading">
-              <div>
-                <h2>Formats</h2>
-                <p>当前先聚焦 OBB</p>
-              </div>
-            </div>
-            <label class="input-group">
-              <span>标签格式</span>
+          <div class="toolbar-group compact">
+            <label class="mini-field mini-select">
+              <span>Model</span>
               <select id="formatSelect"></select>
             </label>
-            <label class="input-group">
-              <span>类别列表</span>
-              <textarea id="classNamesInput" rows="5" placeholder="car&#10;truck&#10;plane"></textarea>
-            </label>
-          </section>
-
-          <section class="card-section grow">
-            <div class="section-heading">
-              <div>
-                <h2>Images</h2>
-                <p><span id="imageCount">0</span> images</p>
-              </div>
-            </div>
-            <label class="input-group">
-              <span>搜索图片</span>
-              <input id="imageSearchInput" type="text" placeholder="输入文件名过滤" />
-            </label>
-            <div id="imageList" class="image-list"></div>
-          </section>
-        </aside>
-
-        <section class="main-stage">
-          <div class="hero card">
-            <div class="hero-copy">
-              <span class="eyebrow">Ultralytics-inspired workflow</span>
-              <h1 id="imageTitle">Select an image to begin</h1>
-              <p id="statusText">先加载图片目录和标签目录，再进入标注工作区。</p>
-            </div>
-            <div class="hero-metrics">
-              <div class="metric-card">
-                <span>当前图片</span>
-                <strong id="imageMeta">-</strong>
-              </div>
-              <div class="metric-card">
-                <span>标注数量</span>
-                <strong id="labelCount">0</strong>
-              </div>
-              <div class="metric-card">
-                <span>当前模式</span>
-                <strong id="modeBadge">Select</strong>
-              </div>
-            </div>
           </div>
 
-          <div class="canvas-stack card">
-            <div class="canvas-toolbar">
-              <div class="toolbar-group">
-                <button id="selectModeButton" class="tool active">选择</button>
-                <button id="drawModeButton" class="tool">四点 OBB</button>
-                <button id="samModeButton" class="tool">SAM 点选</button>
-              </div>
-              <div class="toolbar-group">
-                <button id="prevImageButton" class="ghost">上一张</button>
-                <button id="nextImageButton" class="ghost">下一张</button>
-                <button id="deleteShapeButton" class="ghost danger">删除选中</button>
-                <button id="saveButton" class="primary">保存标签</button>
-              </div>
-            </div>
-
-            <div id="canvasViewport" class="canvas-viewport">
-              <img id="imageLayer" alt="" />
-              <canvas id="overlayCanvas"></canvas>
-            </div>
+          <div class="toolbar-group compact">
+            <button id="deleteShapeButton" class="icon-btn danger" title="删除选中">⌫</button>
+            <button id="saveButton" class="icon-btn success" title="保存">⭳</button>
           </div>
+        </header>
+
+        <section class="floating-panel workspace-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Workspace</h2>
+              <p>选择图片目录与标签目录</p>
+            </div>
+            <button id="refreshButton" class="ghost small">刷新</button>
+          </div>
+
+          <label class="field">
+            <span>图片目录</span>
+            <div class="field-row">
+              <input id="imageDirInput" type="text" placeholder="/home/xf/TraceSAM/images" />
+              <button id="browseImageDirButton" class="ghost small">浏览</button>
+            </div>
+          </label>
+
+          <label class="field">
+            <span>标签目录</span>
+            <div class="field-row">
+              <input id="labelDirInput" type="text" placeholder="/home/xf/TraceSAM/labels" />
+              <button id="browseLabelDirButton" class="ghost small">浏览</button>
+            </div>
+          </label>
+
+          <div class="panel-actions">
+            <button id="loadWorkspaceButton" class="primary wide">加载工作区</button>
+          </div>
+
+          <label class="field">
+            <span>类别列表</span>
+            <textarea id="classNamesInput" rows="5" placeholder="car&#10;truck&#10;plane"></textarea>
+          </label>
+
+          <label class="field">
+            <span>搜索图片</span>
+            <input id="imageSearchInput" type="text" placeholder="Search images..." />
+          </label>
+
+          <div class="subsection-title">
+            <span>Images</span>
+            <strong><span id="imageCount">0</span></strong>
+          </div>
+          <div id="imageList" class="image-list"></div>
         </section>
 
-        <aside class="inspector card">
-          <section class="card-section">
-            <div class="section-heading">
-              <div>
-                <h2>Annotation Inspector</h2>
-                <p>编辑当前选中目标的元数据</p>
-              </div>
+        <section class="floating-panel inspector-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Objects</h2>
+              <p id="statusText">Select an image to begin</p>
             </div>
+            <div class="status-stack">
+              <span class="tiny-stat">状态 <strong id="statusBadge">Idle</strong></span>
+              <span class="tiny-stat">模式 <strong id="modeBadge">Select</strong></span>
+            </div>
+          </div>
 
-            <label class="input-group">
-              <span>Label</span>
-              <input id="labelEditor" type="text" placeholder="class name or class id" />
+          <label class="field">
+            <span>Label</span>
+            <input id="labelEditor" type="text" placeholder="class id or name" />
+          </label>
+
+          <div class="two-col">
+            <label class="field">
+              <span>Confidence</span>
+              <input id="confidenceEditor" type="number" step="0.001" placeholder="0.82" />
             </label>
-
-            <div class="dual-grid">
-              <label class="input-group">
-                <span>Confidence</span>
-                <input id="confidenceEditor" type="number" step="0.001" placeholder="0.82" />
-              </label>
-              <label class="input-group">
-                <span>Track ID</span>
-                <input id="trackIdEditor" type="number" step="1" placeholder="17" />
-              </label>
-            </div>
-
-            <label class="input-group checkbox-line">
-              <input id="difficultEditor" type="checkbox" />
-              <span>Difficult</span>
+            <label class="field">
+              <span>Track ID</span>
+              <input id="trackIdEditor" type="number" step="1" placeholder="12" />
             </label>
-          </section>
+          </div>
 
-          <section class="card-section grow">
-            <div class="section-heading">
-              <div>
-                <h2>Objects</h2>
-                <p>点击列表快速选中目标</p>
-              </div>
+          <label class="check-row">
+            <input id="difficultEditor" type="checkbox" />
+            <span>Difficult</span>
+          </label>
+
+          <div class="subsection-title">
+            <span>Annotations</span>
+            <strong id="labelCount">0</strong>
+          </div>
+          <div id="shapeList" class="shape-list"></div>
+        </section>
+
+        <footer class="floating-bar bottom-bar">
+          <div class="bottom-info">
+            <div class="meta-pill">
+              <span id="imageTitle">Select an image to begin</span>
             </div>
-            <div id="shapeList" class="shape-list"></div>
-          </section>
-        </aside>
+            <div class="meta-pill">
+              <span id="imageMeta">-</span>
+            </div>
+          </div>
+
+          <div class="toolbar-group compact">
+            <button id="prevImageButton" class="ghost small">上一张</button>
+            <button id="nextImageButton" class="ghost small">下一张</button>
+          </div>
+        </footer>
       </main>
     </div>
 
@@ -187,11 +154,11 @@
           <h3 id="directoryDialogTitle">选择目录</h3>
           <p id="directoryCurrentPath">-</p>
         </div>
-        <button id="closeDirectoryDialog" class="ghost">关闭</button>
+        <button id="closeDirectoryDialog" class="ghost small">关闭</button>
       </div>
-      <div class="dialog-actions">
-        <button id="goParentDirectoryButton" class="ghost">上一级</button>
-        <button id="chooseCurrentDirectoryButton" class="primary">使用当前目录</button>
+      <div class="dialog-tools">
+        <button id="goParentDirectoryButton" class="ghost small">上一级</button>
+        <button id="chooseCurrentDirectoryButton" class="primary small">使用当前目录</button>
       </div>
       <div id="directoryList" class="directory-list"></div>
     </dialog>

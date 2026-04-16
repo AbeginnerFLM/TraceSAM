@@ -34,7 +34,6 @@ const elements = {
   labelCount: document.getElementById("labelCount"),
   statusText: document.getElementById("statusText"),
   statusBadge: document.getElementById("statusBadge"),
-  activeFormatLabel: document.getElementById("activeFormatLabel"),
   modeBadge: document.getElementById("modeBadge"),
   imageLayer: document.getElementById("imageLayer"),
   overlayCanvas: document.getElementById("overlayCanvas"),
@@ -122,7 +121,6 @@ function renderFormats() {
     elements.formatSelect.append(option);
   }
   elements.formatSelect.value = state.format;
-  elements.activeFormatLabel.textContent = elements.formatSelect.selectedOptions[0].textContent;
 }
 
 async function loadWorkspace() {
@@ -249,7 +247,6 @@ function syncClassNames() {
 
 function onFormatChange() {
   state.format = elements.formatSelect.value;
-  elements.activeFormatLabel.textContent = elements.formatSelect.selectedOptions[0].textContent;
   const option = state.config.formats.find((item) => item.key === state.format);
   if (option && !option.implemented) {
     setStatus(`${option.display_name} is reserved for later. Current working format is YOLO OBB.`, "warn");
